@@ -5,6 +5,21 @@ import json, os, re, random, time, requests
 HISTORY_FILE = os.getenv("HISTORY_FILE", "kids_history.json")
 MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-flash-latest").split(",") if m.strip()]
 N_SCENES = int(os.getenv("N_SCENES", "18"))
+MODE = os.getenv("CONTENT_MODE", "edu")   # edu = short educational rhyme (ages 3-7) with a fixed mascot cast; story = long story
+EDU_SCENES = int(os.getenv("EDU_SCENES", "10"))
+# Fixed recurring cast: same words + same seed in every video = a recognizable brand look
+MASCOT_NAME, MASCOT = "لولو", "a small round fluffy orange baby fox cub with big friendly eyes and a blue scarf"
+FRIEND_NAME, FRIEND = "بيبو", "a cute round light-blue baby elephant with big ears and a yellow bow"
+MASCOT_SEED = int(os.getenv("MASCOT_SEED", "20260")) 
+EDU_TOPICS = [
+    "حروف الهجاء: الألف والباء والتاء والثاء (كل حرف مع كلمة وشيء يبدأ به)", "حروف الهجاء: الجيم والحاء والخاء والدال",
+    "حروف الهجاء: الذال والراء والزاي والسين", "حروف الهجاء: الشين والصاد والضاد والطاء",
+    "حروف الهجاء: الظاء والعين والغين والفاء", "حروف الهجاء: القاف والكاف واللام والميم", "حروف الهجاء: النون والهاء والواو والياء",
+    "الأرقام من 1 إلى 5 (عد الأشياء)", "الأرقام من 6 إلى 10 (عد الأشياء)", "الألوان الأساسية (أحمر أزرق أصفر أخضر)",
+    "الأشكال (دائرة مربع مثلث مستطيل)", "أيام الأسبوع", "أصوات الحيوانات وأسماؤها", "أسماء الفواكه والخضروات",
+    "أجزاء الجسم", "قول من فضلك وشكرا وعفوا", "غسل اليدين وتنظيف الأسنان", "المشاركة واللعب مع الأصدقاء",
+    "السلام وتحية الجيران واحترام الكبار", "ترتيب الألعاب والنظافة", "المشاعر: سعيد وحزين وغاضب وخائف", "الأضداد: كبير وصغير، طويل وقصير",
+]
 THEMES = ["الصدق", "الكرم والمشاركة", "مساعدة الآخرين", "الشجاعة", "الصبر", "احترام الوالدين",
           "النظافة", "الصداقة", "الاعتذار", "عدم التنمر", "التعاون", "الشكر والامتنان", "حب الحيوانات", "الاجتهاد"]
 HEROES = ["أرنب صغير", "قطة", "فيل", "عصفورة", "سلحفاة", "طفل اسمه يوسف", "طفلة اسمها ليلى", "دب", "نحلة", "زرافة"]
@@ -33,6 +48,52 @@ def _call(model, prompt, key):
 
 
 def generate_story():
+    if MODE == "edu":
+        return generate_edu()
+    return generate_story_long()
+
+
+def generate_edu():
+    key = os.environ["GEMINI_API_KEY"]
+    hist = load_history()
+    used = [h["title"] for h in hist[-40:]]
+    done_topics = [h.get("theme") for h in hist if h.get("theme")]
+    left = [t for t in EDU_TOPICS if t not in done_topics] or EDU_TOPICS
+    topic = left[0] if os.getenv("EDU_ORDERED", "1") == "1" else random.choice(left)
+    prompt = f"""اكتب أنشودة تعليمية قصيرة بالعربية الفصحى المبسطة لأطفال من 3 إلى 7 سنوات.
+موضوع الدرس: {topic}.
+الأبطال الثابتون: {MASCOT_NAME} ({MASCOT}) و{FRIEND_NAME} ({FRIEND}). يعلّمان الأطفال بمرح.
+الشروط: {EDU_SCENES} مشاهد، كل مشهد من 20 إلى 32 كلمة، جمل قصيرة جدا موزونة ومقفاة كالأناشيد، مع لازمة (جملة ختام قصيرة مكررة بنفس اللفظ) في آخر كل مشهدين. المشهد الأول يبدأ بسؤال جذاب للأطفال أو نداء مرح فورا (بدون مقدمة طويلة). كل مشهد يعلّم عنصرا واحدا واضحا ويكرره. المشهد الأخير: مراجعة سريعة للدرس وتحية ختام سعيدة وتشجيع.
+ممنوع: العنف والرعب والسياسة وأي محتوى غير مناسب. لا تكرر هذه العناوين: {used}
+لكل مشهد حقل on_screen: النص الكبير الذي سيظهر على الشاشة بالعربية (حرف مع كلمة مثل "أ: أرنب"، أو رقم وكلمته "3: ثلاثة"، أو اللون، أو الكلمة المهمة)، أقل من 4 كلمات.
+لكل مشهد image_prompt بالإنجليزية (جملتان): ما يحدث بالضبط، والشخصية {MASCOT_NAME} بوصفها الحرفي: {MASCOT}، وعند ظهور {FRIEND_NAME} بوصفه الحرفي: {FRIEND}. أظهر في الصورة الأشياء التي يتعلمها الطفل (مثلا ثلاث تفاحات لرقم 3) بشكل كبير وواضح، لقطة متوسطة أو واسعة، بدون أي كتابة داخل الصورة، خلفية ملونة مبهجة.
+رجّع JSON فقط بهذه المفاتيح: title (عنوان قصير جذاب بالعربية فيه كلمة تعليمي أو أنشودة), description (سطران بالعربية), tags (8 كلمات), hook_title (2 إلى 5 كلمات تظهر في أول ثانيتين), thumbnail_text (2 إلى 4 كلمات), thumbnail_prompt (بالإنجليزية: {MASCOT_NAME} مبتسم يشير إلى عنصر الدرس الرئيسي، لقطة متوسطة),
+scenes (قائمة: narration, on_screen, image_prompt, search)."""
+    last = None
+    for model in MODELS:
+        for _try in range(4):
+            try:
+                txt = _call(model, prompt, key)
+                data = json.loads(re.sub(r"^```json|```$", "", txt.strip()).strip())
+                scenes = [s for s in data["scenes"] if s.get("narration", "").strip()]
+                if len(scenes) < 6:
+                    raise ValueError("too few scenes")
+                data["scenes"] = scenes
+                data["character"], data["friend"] = MASCOT, FRIEND
+                data["story"] = " ".join(s["narration"].strip() for s in scenes)
+                if len(data["story"].split()) < 100:
+                    raise ValueError("lesson too short")
+                hist.append({"title": data["title"], "theme": topic})
+                save_history(hist)
+                return data
+            except Exception as e:
+                last = e
+                print(f"[gemini:{model}] {e}")
+                time.sleep(10 * (_try + 1))
+    raise RuntimeError(f"Edu generation failed: {last}")
+
+
+def generate_story_long():
     key = os.environ["GEMINI_API_KEY"]
     hist = load_history()
     used = [h["title"] for h in hist[-30:]]
