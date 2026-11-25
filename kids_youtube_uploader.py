@@ -63,11 +63,21 @@ def main():
     km.SEED = ksg.MASCOT_SEED if ksg.MODE == "edu" else random.randint(1, 10**6)  # one seed per story keeps the hero looking the same in every scene
     audios = asyncio.run(_tts_all(scenes))
     imgs = []
-    for i, s in enumerate(scenes):
-        imgs.append(km.make_image(s.get("image_prompt", title), character, s.get("search"), f"{OUT}/scene_{i:02d}.jpg", fallback=imgs[-1] if imgs else None))
-        print("image", i + 1, "/", len(scenes))
-    thumb_prompt = "Close-up of its happy smiling animal face with huge sparkly eyes, centered, empty space at the bottom"
-    thumb_base = km.make_image(thumb_prompt, character, "cute animals", f"{OUT}/thumb_base.jpg", fallback=imgs[0])
+    VECTOR = ksg.MODE == "edu" and os.getenv("EDU_STYLE", "vector") == "vector"
+    if VECTOR:
+        import kids_vector as kv
+        os.makedirs(OUT, exist_ok=True)
+        for i, s in enumerate(scenes):
+            imgs.append(kv.vector_scene(i, s.get("on_screen"), s.get("obj"), s.get("count"), f"{OUT}/scene_{i:02d}.jpg"))
+        s0 = scenes[0]
+        thumb_base = kv.vector_scene(0, s0.get("on_screen"), s0.get("obj"), 1, f"{OUT}/thumb_base.jpg", who="fox", big=True)
+        print("vector scenes:", len(imgs))
+    else:
+        for i, s in enumerate(scenes):
+            imgs.append(km.make_image(s.get("image_prompt", title), character, s.get("search"), f"{OUT}/scene_{i:02d}.jpg", fallback=imgs[-1] if imgs else None))
+            print("image", i + 1, "/", len(scenes))
+        thumb_prompt = "Close-up of its happy smiling animal face with huge sparkly eyes, centered, empty space at the bottom"
+        thumb_base = km.make_image(thumb_prompt, character, "cute animals", f"{OUT}/thumb_base.jpg", fallback=imgs[0])
     try:
         thumb = km.make_thumbnail(thumb_base, d.get("thumbnail_text") or title, f"{OUT}/thumb.jpg")
     except Exception as e:
