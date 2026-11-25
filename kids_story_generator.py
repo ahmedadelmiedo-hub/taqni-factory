@@ -4,7 +4,7 @@ import json, os, re, random, requests
 
 HISTORY_FILE = os.getenv("HISTORY_FILE", "kids_history.json")
 MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", "gemini-2.5-flash,gemini-2.0-flash").split(",") if m.strip()]
-N_SCENES = int(os.getenv("N_SCENES", "14"))
+N_SCENES = int(os.getenv("N_SCENES", "12"))
 THEMES = ["الصدق", "الكرم والمشاركة", "مساعدة الآخرين", "الشجاعة", "الصبر", "احترام الوالدين",
           "النظافة", "الصداقة", "الاعتذار", "عدم التنمر", "التعاون", "الشكر والامتنان", "حب الحيوانات", "الاجتهاد"]
 HEROES = ["أرنب صغير", "قطة", "فيل", "عصفورة", "سلحفاة", "طفل اسمه يوسف", "طفلة اسمها ليلى", "دب", "نحلة", "زرافة"]
