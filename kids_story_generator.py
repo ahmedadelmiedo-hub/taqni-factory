@@ -1,9 +1,9 @@
 """Generate an Arabic kids story with Gemini, split into illustrated scenes.
 Returns dict: title, story, description, tags, character, scenes[{narration,image_prompt,search}], thumbnail_prompt."""
-import json, os, re, random, requests
+import json, os, re, random, time, requests
 
 HISTORY_FILE = os.getenv("HISTORY_FILE", "kids_history.json")
-MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", "gemini-2.5-flash,gemini-2.0-flash").split(",") if m.strip()]
+MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-flash-latest").split(",") if m.strip()]
 N_SCENES = int(os.getenv("N_SCENES", "18"))
 THEMES = ["الصدق", "الكرم والمشاركة", "مساعدة الآخرين", "الشجاعة", "الصبر", "احترام الوالدين",
           "النظافة", "الصداقة", "الاعتذار", "عدم التنمر", "التعاون", "الشكر والامتنان", "حب الحيوانات", "الاجتهاد"]
@@ -57,7 +57,7 @@ hook_title (عنوان قصير جدا من 2 إلى 5 كلمات بالعربي
 thumbnail_text (من كلمتين إلى 4 كلمات بالعربية جذابة للغلاف)."""
     last = None
     for model in MODELS:
-        for _ in range(2):
+        for _try in range(4):
             try:
                 txt = _call(model, prompt, key)
                 data = json.loads(re.sub(r"^```json|```$", "", txt.strip()).strip())
@@ -74,6 +74,7 @@ thumbnail_text (من كلمتين إلى 4 كلمات بالعربية جذاب�
             except Exception as e:
                 last = e
                 print(f"[gemini:{model}] {e}")
+                time.sleep(10 * (_try + 1))
     raise RuntimeError(f"Story generation failed: {last}")
 
 
