@@ -215,7 +215,7 @@ def _title_overlay(title, size):
     return ov
 
 
-def parallax_clip(bg, fg, dur, out, size, idx, title=None, fps=24):
+def parallax_clip(bg, fg, dur, out, size, idx, title=None, fps=24, caption=None):
     """Animated scene: slow camera move on the background, stronger move + bobbing on the subject, drifting sparkles."""
     w, h = size
     frames = max(int(dur * fps), fps)
@@ -233,6 +233,7 @@ def parallax_clip(bg, fg, dur, out, size, idx, title=None, fps=24):
         if len(xs):
             cxf, cyf = float(xs.mean()), float(ys.mean())
     ov = _title_overlay(title, size) if (title and idx == 0) else None
+    cap = _title_overlay(caption, (int(w * 0.8), h)).resize((int(w * 0.8), int(_title_overlay(caption, (int(w * 0.8), h)).height))) if caption else None
     ff = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "-",
                            "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", out], stdin=subprocess.PIPE)
     try:
@@ -271,6 +272,11 @@ def parallax_clip(bg, fg, dur, out, size, idx, title=None, fps=24):
                 if al < 1:
                     o2.putalpha(o2.split()[3].point(lambda v: int(v * al)))
                 frame.alpha_composite(o2, ((w - o2.width) // 2, int(h * 0.04)))
+            if cap is not None and t > 0.6:
+                pc = min(1.0, (t - 0.6) / 0.3)
+                sc2 = 0.7 * (0.85 + 0.15 * (1 - (1 - pc) ** 3))
+                c2 = cap.resize((max(1, int(cap.width * sc2)), max(1, int(cap.height * sc2))), Image.LANCZOS)
+                frame.alpha_composite(c2, ((w - c2.width) // 2, int(h * 0.97) - c2.height))
             ff.stdin.write(frame.convert("RGB").tobytes())
     finally:
         ff.stdin.close(); ff.wait()
@@ -279,17 +285,17 @@ def parallax_clip(bg, fg, dur, out, size, idx, title=None, fps=24):
 
 
 def _scene_job(args):
-    img, dur, seg, size, idx, title = args
+    img, dur, seg, size, idx, title, caption = args
     try:
         bg, fg = cutout(img)
-        parallax_clip(bg, fg, dur, seg, size, idx, title)
+        parallax_clip(bg, fg, dur, seg, size, idx, title, caption=caption)
     except Exception as e:
         print("parallax failed for scene", idx, e, "- falling back to Ken Burns")
         scene_clip(img, dur, seg, size, idx)
     return seg
 
 
-def assemble(scene_imgs, scene_audios, out, size, max_dur=None, workdir="out", animate=False, title=None):
+def assemble(scene_imgs, scene_audios, out, size, max_dur=None, workdir="out", animate=False, title=None, captions=None):
     """scene_audios: mp3 per scene. Image i lasts exactly as long as its narration (+0.5s pause)."""
     segs, auds, total, jobs = [], [], 0.0, []
     for i, (im, au) in enumerate(zip(scene_imgs, scene_audios)):
@@ -297,14 +303,14 @@ def assemble(scene_imgs, scene_audios, out, size, max_dur=None, workdir="out", a
         if max_dur and total >= max_dur:
             break
         seg = f"{workdir}/seg_{size[0]}_{i}.mp4"
-        jobs.append((im, d, seg, size, i, title))
+        jobs.append((im, d, seg, size, i, title, (captions[i] if captions and i < len(captions) else None)))
         segs.append(seg); auds.append(au); total += d
     if animate:
         from concurrent.futures import ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=min(4, os.cpu_count() or 2)) as ex:
             list(ex.map(_scene_job, jobs))
     else:
-        for (im, d, seg, sz, i, _t) in jobs:
+        for (im, d, seg, sz, i, _t, _c) in jobs:
             scene_clip(im, d, seg, sz, i)
     lst = f"{workdir}/list_{size[0]}.txt"
     with open(lst, "w") as f:
