@@ -68,7 +68,7 @@ def _pollinations(prompt, tries=5):
         seed = SEED if SEED else random.randint(1, 10**6)
         try:
             r = requests.get("https://image.pollinations.ai/prompt/" + requests.utils.quote(prompt[:900]),
-                             params={"width": 1280, "height": 720, "model": "flux", "nologo": "true", "seed": seed},
+                             params={"width": 1280, "height": 720, "model": "flux", "nologo": "true", "seed": seed, "negative_prompt": "photo, realistic, macro, extreme close-up, creepy, scary, deformed, text"},
                              timeout=150)
             if r.status_code == 200 and r.headers.get("content-type", "").startswith("image"):
                 img = Image.open(io.BytesIO(r.content)).convert("RGB")
@@ -97,7 +97,8 @@ def _pexels_photo(q):
 
 
 def make_image(scene_prompt, character, search, path, fallback=None):
-    prompt = f"{STYLE}. {character + ', ' if character else ''}{scene_prompt}"
+    prompt = (f"Pixar-style 3D animated cartoon character, cartoon not photo, not realistic, big friendly smile, {character + ', ' if character else ''}"
+              f"{scene_prompt}. {STYLE}. Medium or wide shot, whole character visible, no macro, no extreme close-up")
     img = _gemini_image(prompt) or _pollinations(prompt)
     if img is None and fallback and os.path.exists(fallback):
         img = Image.open(fallback)  # reuse the previous scene art rather than an unrelated stock photo
