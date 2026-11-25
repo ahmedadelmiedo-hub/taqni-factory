@@ -62,9 +62,10 @@ def main():
     audios = asyncio.run(_tts_all(scenes))
     imgs = []
     for i, s in enumerate(scenes):
-        imgs.append(km.make_image(s.get("image_prompt", title), character, s.get("search"), f"{OUT}/scene_{i:02d}.jpg"))
+        imgs.append(km.make_image(s.get("image_prompt", title), character, s.get("search"), f"{OUT}/scene_{i:02d}.jpg", fallback=imgs[-1] if imgs else None))
         print("image", i + 1, "/", len(scenes))
-    thumb_base = km.make_image(d.get("thumbnail_prompt") or scenes[0]["image_prompt"], character, "cute animals", f"{OUT}/thumb_base.jpg")
+    thumb_prompt = "Close-up of its happy smiling animal face with huge sparkly eyes, centered, empty space at the bottom"
+    thumb_base = km.make_image(thumb_prompt, character, "cute animals", f"{OUT}/thumb_base.jpg", fallback=imgs[0])
     try:
         thumb = km.make_thumbnail(thumb_base, d.get("thumbnail_text") or title, f"{OUT}/thumb.jpg")
     except Exception as e:
