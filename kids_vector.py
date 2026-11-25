@@ -194,6 +194,7 @@ def vector_scene(idx, on_screen, obj, count, path, W=1280, H=720, who=None, big=
     fg = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     key = pick_obj(on_screen, obj); n = max(1, min(int(count or 1), 5))
     who = who or ("fox" if idx % 2 == 0 else "ele")
+    if key == "fox": who = "ele"  # word picture is a fox: Lulu (fox) must not appear too
     m = outline((fox() if who == "fox" else ele()), px=14)
     mh = int(h * (0.78 if big else 0.6)); m = _fit(m, mh)
     left = (idx % 3 != 1)
