@@ -42,7 +42,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash,gemini-2.0-flash' }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash,gemini-2.5-flash-lite,gemini-flash-latest' }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           YT_TOKEN_JSON: ${{ secrets.YT_TOKEN_JSON }}
           TTS_VOICE: ${{ vars.TTS_VOICE || 'ar-EG-SalmaNeural' }}
