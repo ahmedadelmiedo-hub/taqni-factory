@@ -1,8 +1,8 @@
 requests
 edge-tts
-moviepy==1.0.3
-numpy<2
 Pillow<10
+arabic-reshaper
+python-bidi
 google-api-python-client
 google-auth
 google-auth-oauthlib
