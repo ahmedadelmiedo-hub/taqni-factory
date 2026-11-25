@@ -40,6 +40,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run bot
         env:
+          PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash,gemini-2.0-flash' }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
