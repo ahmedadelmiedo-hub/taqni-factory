@@ -71,6 +71,14 @@ def main():
         print("thumbnail render failed:", e); thumb = thumb_base
     dur = km.assemble(imgs, audios, f"{OUT}/story.mp4", (1280, 720), workdir=OUT)
     print("video seconds:", round(dur))
+    try:  # preview files committed to the repo so the result can be checked without downloading the video
+        import shutil, subprocess
+        os.makedirs("preview", exist_ok=True)
+        shutil.copy(thumb, "preview/thumb.jpg")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", f"{OUT}/story.mp4", "-vf",
+                        "fps=1/30,scale=320:-1,tile=4x4", "-frames:v", "1", "preview/contact.jpg"], check=True)
+    except Exception as e:
+        print("preview failed:", e)
     if MAKE_SHORT:
         vimgs = []
         for i, p in enumerate(imgs):
