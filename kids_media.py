@@ -4,8 +4,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-STYLE = ("bright sunny cheerful flat 2D cartoon illustration for kids, vivid colors, cute animal with animal face, "
-         "big happy eyes, simple colorful background, not realistic, not dark, no text")
+STYLE = "Pixar-style 3D animated movie render, vibrant colors, soft sunny lighting, cute, kid-friendly, high detail"
 IMG_MODELS = [m.strip() for m in os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image,gemini-2.0-flash-preview-image-generation").split(",") if m.strip()]
 PEXELS = os.getenv("PEXELS_API_KEY", "")
 FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "NotoSansArabic-Black.ttf")
@@ -96,7 +95,9 @@ def _pexels_photo(q):
 
 
 def make_image(scene_prompt, character, search, path, fallback=None):
-    prompt = f"{character}. {scene_prompt}. Style: {STYLE}."
+    prompt = f"{STYLE}. {scene_prompt}"
+    if character and character[:20].lower() not in scene_prompt.lower():
+        prompt += f" Main character: {character}"
     img = _gemini_image(prompt) or _pollinations(prompt)
     if img is None and fallback and os.path.exists(fallback):
         img = Image.open(fallback)  # reuse the previous scene art rather than an unrelated stock photo
@@ -168,6 +169,16 @@ def assemble(scene_imgs, scene_audios, out, size, max_dur=None, workdir="out"):
     fl.append("".join(f"[a{i}]" for i in range(len(auds))) + f"concat=n={len(auds)}:v=0:a=1[aout]")
     wav = f"{workdir}/a_{size[0]}.m4a"
     _run(["ffmpeg", "-y", "-loglevel", "error", *ins, "-filter_complex", ";".join(fl), "-map", "[aout]", "-c:a", "aac", "-b:a", "128k", wav])
+    try:
+        mus = f"{workdir}/music_{size[0]}.wav"
+        make_music(total, mus)
+        mixed = f"{workdir}/mix_{size[0]}.m4a"
+        _run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-i", mus, "-filter_complex",
+              "[1:a]volume=0.13[m];[0:a][m]amix=inputs=2:duration=first:dropout_transition=0,volume=2,alimiter=limit=0.95[o]",
+              "-map", "[o]", "-c:a", "aac", "-b:a", "160k", mixed])
+        wav = mixed
+    except Exception as e:
+        print("music failed:", e)
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", vid, "-i", wav, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "copy", "-shortest"]
     if max_dur:
         cmd += ["-t", str(max_dur)]
@@ -205,3 +216,43 @@ def make_thumbnail(base_img_path, text, out):
         y += lh
     im.save(out, quality=92)
     return out
+
+
+def make_music(duration, path, bpm=100):
+    """Cheerful original marimba-style loop (C-Am-F-G), synthesized here, so there are no licensing issues."""
+    import numpy as np, wave
+    sr = 44100
+    beat = 60.0 / bpm
+    n = int((duration + 1) * sr)
+    out = np.zeros(n + sr * 3)
+    def hz(semi):  # semitones from C4
+        return 261.63 * 2 ** (semi / 12)
+    def pluck(f, length, amp):
+        t = np.arange(int(length * sr)) / sr
+        s = np.sin(2 * np.pi * f * t) + 0.35 * np.sin(2 * np.pi * 2 * f * t) * np.exp(-t * 9) + 0.15 * np.sin(2 * np.pi * 3 * f * t) * np.exp(-t * 14)
+        env = np.minimum(t / 0.006, 1) * np.exp(-t * 5.5)
+        return amp * s * env
+    chords = [(0, [0, 4, 7]), (-3, [-3, 0, 4]), (-7, [-7, -3, 0]), (-5, [-5, -1, 2])]
+    motif = [0, 1, 2, 1, 2, 1, 0, 1]  # index into chord tones (+ octave), eight eighth-notes per bar of 4 beats
+    pos, bar = 0.0, 0
+    total = duration + 1
+    while pos < total:
+        root, tones = chords[bar % 4]
+        for i, k in enumerate(motif):
+            st = int((pos + i * beat / 2) * sr)
+            semi = tones[k % 3] + (12 if (k + bar) % 5 == 4 else 12 if i % 4 == 3 else 0) + 12
+            snd = pluck(hz(semi), 0.7, 0.30)
+            if st + len(snd) < len(out): out[st:st + len(snd)] += snd
+        for b in range(4):
+            st = int((pos + b * beat) * sr)
+            snd = pluck(hz(root - 12), 0.9, 0.35 if b in (0, 2) else 0.2)
+            if st + len(snd) < len(out): out[st:st + len(snd)] += snd
+        pos += 4 * beat; bar += 1
+    out = out[:n]
+    fade = int(3 * sr)
+    out[-fade:] *= np.linspace(1, 0, fade)
+    out = out / (np.max(np.abs(out)) + 1e-9) * 0.9
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
+        w.writeframes((out * 32767).astype("<i2").tobytes())
+    return path
