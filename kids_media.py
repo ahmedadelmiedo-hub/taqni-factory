@@ -4,9 +4,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-STYLE = ("children's picture book illustration, soft watercolor and digital painting, bright cheerful colors, "
-         "cute friendly cartoon style, big expressive eyes, simple clean background, wide 16:9 composition, "
-         "no text, no letters, no words, no watermark")
+STYLE = ("bright sunny cheerful flat 2D cartoon illustration for kids, vivid colors, cute animal with animal face, "
+         "big happy eyes, simple colorful background, not realistic, not dark, no text")
 IMG_MODELS = [m.strip() for m in os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image,gemini-2.0-flash-preview-image-generation").split(",") if m.strip()]
 PEXELS = os.getenv("PEXELS_API_KEY", "")
 FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "NotoSansArabic-Black.ttf")
@@ -96,9 +95,13 @@ def _pexels_photo(q):
     return None
 
 
-def make_image(scene_prompt, character, search, path):
-    prompt = f"{scene_prompt}. Main character: {character}. Style: {STYLE}"
-    img = _gemini_image(prompt) or _pollinations(prompt) or _pexels_photo(search or "cute animals")
+def make_image(scene_prompt, character, search, path, fallback=None):
+    prompt = f"{character}. {scene_prompt}. Style: {STYLE}."
+    img = _gemini_image(prompt) or _pollinations(prompt)
+    if img is None and fallback and os.path.exists(fallback):
+        img = Image.open(fallback)  # reuse the previous scene art rather than an unrelated stock photo
+    if img is None:
+        img = _pexels_photo(search or "cute animals")
     if img is None:
         img = Image.new("RGB", (W, H), (255, 214, 120))
     img = _fit_169(img)
