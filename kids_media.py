@@ -1,5 +1,6 @@
 """Images (Gemini -> Pollinations -> Pexels photo), Ken Burns video via ffmpeg, thumbnail."""
-import base64, io, os, re, subprocess, time, random, requests
+import base64, io, os, re, subprocess, time, random, math, requests
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -23,6 +24,7 @@ def ensure_font():
     return FONT
 W, H = 1280, 720
 _gemini_ok = True
+SEED = 0  # per-story seed set by the uploader: same seed + same character text = more consistent look
 
 
 def _fit_169(img):
@@ -63,7 +65,7 @@ def _gemini_image(prompt):
 
 def _pollinations(prompt, tries=5):
     for i in range(tries):
-        seed = random.randint(1, 10**6)
+        seed = SEED if SEED else random.randint(1, 10**6)
         try:
             r = requests.get("https://image.pollinations.ai/prompt/" + requests.utils.quote(prompt[:900]),
                              params={"width": 1280, "height": 720, "model": "flux", "nologo": "true", "seed": seed},
@@ -95,9 +97,7 @@ def _pexels_photo(q):
 
 
 def make_image(scene_prompt, character, search, path, fallback=None):
-    prompt = f"{STYLE}. {scene_prompt}"
-    if character and character[:20].lower() not in scene_prompt.lower():
-        prompt += f" Main character: {character}"
+    prompt = f"{STYLE}. {character + ', ' if character else ''}{scene_prompt}"
     img = _gemini_image(prompt) or _pollinations(prompt)
     if img is None and fallback and os.path.exists(fallback):
         img = Image.open(fallback)  # reuse the previous scene art rather than an unrelated stock photo
@@ -145,16 +145,166 @@ def scene_clip(img, dur, out, size, idx):
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-t", f"{dur:.3f}", out])
 
 
-def assemble(scene_imgs, scene_audios, out, size, max_dur=None, workdir="out"):
+
+# ---------------------------------------------------------------- parallax animation
+_rembg_session = None
+
+
+def cutout(img_path):
+    """Split a scene into (background with the subject removed, subject RGBA) or (img, None) if segmentation is unusable."""
+    global _rembg_session
+    im = Image.open(img_path).convert("RGB")
+    try:
+        from rembg import remove, new_session
+        if _rembg_session is None:
+            _rembg_session = new_session("u2netp")
+        fg = remove(im, session=_rembg_session)
+        a = np.array(fg.split()[3]).astype("float32") / 255.0
+        cov = float((a > 0.5).mean())
+        if cov < 0.03 or cov > 0.75:
+            return im, None
+        a_img = fg.split()[3].filter(ImageFilter.GaussianBlur(1.2))
+        fg.putalpha(a_img)
+        # background: fill the subject hole with a mask-aware blur of its surroundings
+        m = Image.fromarray((a > 0.1).astype("uint8") * 255).filter(ImageFilter.MaxFilter(15))
+        mm = np.array(m).astype("float32")[..., None] / 255.0
+        arr = np.array(im).astype("float32")
+        keep = 1.0 - mm
+        num = np.array(Image.fromarray((arr * keep).astype("uint8")).filter(ImageFilter.GaussianBlur(40))).astype("float32")
+        den = np.array(Image.fromarray((keep[..., 0] * 255).astype("uint8")).filter(ImageFilter.GaussianBlur(40))).astype("float32")[..., None] / 255.0
+        fill = num / np.maximum(den, 0.02)
+        fill = np.clip(fill, 0, 255)
+        soft = np.array(m.filter(ImageFilter.GaussianBlur(6))).astype("float32")[..., None] / 255.0
+        bg = arr * (1 - soft) + fill * soft
+        return Image.fromarray(bg.astype("uint8")), fg
+    except Exception as e:
+        print("cutout failed:", e)
+        return im, None
+
+
+def _aff(img, size, z, cx, cy, tx, ty, rot=0.0, res=Image.BICUBIC):
+    """Zoom z and rotate (radians) about (cx,cy), then shift by (tx,ty)."""
+    c, s_ = math.cos(rot), math.sin(rot)
+    a, b, d, e = c / z, s_ / z, -s_ / z, c / z
+    px, py = cx + tx, cy + ty
+    return img.transform(size, Image.AFFINE, (a, b, cx - (a * px + b * py), d, e, cy - (d * px + e * py)), res)
+
+
+def _title_overlay(title, size):
+    w, h = size
+    d0 = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+    words = title.split()
+    lines = [title] if len(words) <= 3 else [" ".join(words[:(len(words) + 1) // 2]), " ".join(words[(len(words) + 1) // 2:])]
+    fs = int(h * 0.15)
+    while fs > 30:
+        f = ImageFont.truetype(ensure_font(), fs, layout_engine=ImageFont.Layout.BASIC)
+        if max(d0.textlength(_ar(l), font=f) for l in lines) <= w * 0.86:
+            break
+        fs -= 4
+    lh = int(fs * 1.4)
+    bh = lh * len(lines) + int(fs * 0.5)
+    ov = Image.new("RGBA", (w, bh), (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
+    d.rounded_rectangle((int(w * 0.04), 0, int(w * 0.96), bh - 1), radius=int(fs * 0.5), fill=(255, 92, 140, 235), outline=(255, 255, 255, 255), width=6)
+    y = int(fs * 0.22)
+    for l in lines:
+        t = _ar(l); tw = d.textlength(t, font=f)
+        d.text(((w - tw) / 2, y), t, font=f, fill=(255, 236, 60), stroke_width=max(5, fs // 12), stroke_fill=(60, 10, 70))
+        y += lh
+    return ov
+
+
+def parallax_clip(bg, fg, dur, out, size, idx, title=None, fps=24):
+    """Animated scene: slow camera move on the background, stronger move + bobbing on the subject, drifting sparkles."""
+    w, h = size
+    frames = max(int(dur * fps), fps)
+    bgp = bg.resize((int(w * 1.25), int(h * 1.25)), Image.LANCZOS)
+    fgp = fg.resize(bgp.size, Image.LANCZOS) if fg is not None else None
+    BW, BH = bgp.size
+    rnd = random.Random(idx * 7919 + 13)
+    mode = idx % 4  # camera pattern
+    zin = mode in (0, 2)
+    pan = [(-1, 0), (1, 0), (0, -1), (0, 1)][mode]
+    sp = [(rnd.random() * w, rnd.random() * h, 0.3 + rnd.random() * 0.8, rnd.random() * 6.28, 4 + rnd.random() * 6) for _ in range(14)]
+    cxf, cyf = BW / 2, BH / 2
+    if fgp is not None:
+        ys, xs = np.nonzero(np.array(fgp.split()[3]) > 128)
+        if len(xs):
+            cxf, cyf = float(xs.mean()), float(ys.mean())
+    ov = _title_overlay(title, size) if (title and idx == 0) else None
+    ff = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "-",
+                           "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", out], stdin=subprocess.PIPE)
+    try:
+        for n in range(frames):
+            p = n / max(frames - 1, 1)
+            t = n / fps
+            e = p * p * (3 - 2 * p)
+            zb = 1.0 + 0.10 * (e if zin else 1 - e)
+            tx, ty = pan[0] * (e - 0.5) * 0.06 * BW, pan[1] * (e - 0.5) * 0.06 * BH
+            # window of size (w,h) from the center of the oversized plate
+            ox, oy = (BW - w) / 2, (BH - h) / 2
+            frame = _aff(bgp, (w, h), zb, BW / 2 - ox, BH / 2 - oy, tx, ty) if False else None
+            canvas_bg = _aff(bgp, (BW, BH), zb, BW / 2, BH / 2, tx, ty).crop((int(ox), int(oy), int(ox) + w, int(oy) + h))
+            if fgp is not None:
+                zf = zb + 0.05 + 0.05 * (1 if zin else -1) * (e - 0.5)
+                bob = 9 * math.sin(2 * math.pi * t / 2.0)
+                sway = 6 * math.sin(2 * math.pi * t / 3.3)
+                rot = math.radians(1.6) * math.sin(2 * math.pi * t / 2.6)
+                f2 = _aff(fgp, (BW, BH), zf, cxf, cyf, tx * 1.7 + sway, ty * 1.7 + bob, rot).crop((int(ox), int(oy), int(ox) + w, int(oy) + h))
+                canvas_bg.paste(f2.convert("RGB"), mask=f2.split()[3])
+            frame = canvas_bg.convert("RGBA")
+            sl = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            dd = ImageDraw.Draw(sl)
+            for (x0, y0, spd, ph, r) in sp:
+                x = (x0 + 25 * math.sin(t * 0.9 + ph)) % w
+                y = (y0 - spd * 40 * t) % h
+                a = int(140 + 100 * math.sin(t * 3 + ph))
+                rr = r * (0.7 + 0.3 * math.sin(t * 2.4 + ph))
+                dd.ellipse((x - rr, y - rr, x + rr, y + rr), fill=(255, 255, 220, max(0, min(255, a))))
+            frame = Image.alpha_composite(frame, sl)
+            if ov is not None and t < 2.8:
+                pop = min(1.0, t / 0.35)
+                sc = 0.6 + 0.4 * (1 - (1 - pop) ** 3) + 0.04 * math.sin(t * 9) * (1 - pop)
+                al = 1.0 if t < 2.2 else max(0.0, (2.8 - t) / 0.6)
+                o2 = ov.resize((max(1, int(ov.width * sc)), max(1, int(ov.height * sc))), Image.LANCZOS)
+                if al < 1:
+                    o2.putalpha(o2.split()[3].point(lambda v: int(v * al)))
+                frame.alpha_composite(o2, ((w - o2.width) // 2, int(h * 0.04)))
+            ff.stdin.write(frame.convert("RGB").tobytes())
+    finally:
+        ff.stdin.close(); ff.wait()
+    if ff.returncode:
+        raise RuntimeError("ffmpeg parallax failed")
+
+
+def _scene_job(args):
+    img, dur, seg, size, idx, title = args
+    try:
+        bg, fg = cutout(img)
+        parallax_clip(bg, fg, dur, seg, size, idx, title)
+    except Exception as e:
+        print("parallax failed for scene", idx, e, "- falling back to Ken Burns")
+        scene_clip(img, dur, seg, size, idx)
+    return seg
+
+
+def assemble(scene_imgs, scene_audios, out, size, max_dur=None, workdir="out", animate=False, title=None):
     """scene_audios: mp3 per scene. Image i lasts exactly as long as its narration (+0.5s pause)."""
-    segs, auds, total = [], [], 0.0
+    segs, auds, total, jobs = [], [], 0.0, []
     for i, (im, au) in enumerate(zip(scene_imgs, scene_audios)):
         d = audio_duration(au) + 0.5
         if max_dur and total >= max_dur:
             break
         seg = f"{workdir}/seg_{size[0]}_{i}.mp4"
-        scene_clip(im, d, seg, size, i)
+        jobs.append((im, d, seg, size, i, title))
         segs.append(seg); auds.append(au); total += d
+    if animate:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=min(4, os.cpu_count() or 2)) as ex:
+            list(ex.map(_scene_job, jobs))
+    else:
+        for (im, d, seg, sz, i, _t) in jobs:
+            scene_clip(im, d, seg, sz, i)
     lst = f"{workdir}/list_{size[0]}.txt"
     with open(lst, "w") as f:
         for s in segs:
