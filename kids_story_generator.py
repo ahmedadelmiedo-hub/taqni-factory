@@ -53,6 +53,10 @@ def generate_story():
     return generate_story_long()
 
 
+def record_history(data):
+    h = load_history(); h.append({"title": data["title"], "theme": data.get("_theme")}); save_history(h)
+
+
 def generate_edu():
     key = os.environ["GEMINI_API_KEY"]
     hist = load_history()
@@ -84,9 +88,7 @@ scenes (قائمة: narration, on_screen, obj, count, image_prompt, search)."""
                 data["story"] = " ".join(s["narration"].strip() for s in scenes)
                 if len(data["story"].split()) < 100:
                     raise ValueError("lesson too short")
-                if os.getenv("DRY_RUN", "false").lower() != "true":  # a dry run must not use up a lesson
-                    hist.append({"title": data["title"], "theme": topic})
-                    save_history(hist)
+                data["_theme"] = topic  # recorded in history by the uploader only after a successful upload
                 return data
             except Exception as e:
                 last = e
