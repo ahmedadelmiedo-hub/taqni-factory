@@ -90,6 +90,8 @@ def main():
         shutil.copy(thumb, "preview/thumb.jpg")
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", f"{OUT}/story.mp4", "-vf",
                         "fps=1/30,scale=320:-1,tile=4x4", "-frames:v", "1", "preview/contact.jpg"], check=True)
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", f"{OUT}/story.mp4", "-vf", "scale=640:-2", "-c:v", "libx264", "-crf", "30",
+                        "-preset", "veryfast", "-c:a", "aac", "-b:a", "64k", "preview/story_small.mp4"], check=True)
     except Exception as e:
         print("preview failed:", e)
     if MAKE_SHORT:
@@ -103,6 +105,11 @@ def main():
     vid = upload(yt, f"{OUT}/story.mp4", title, d["description"] + "\n\nاشترك في القناة لقصص جديدة كل يوم 🌟", tags)
     url = f"https://www.youtube.com/watch?v={vid}"
     print("Uploaded:", url)
+    if ksg.MODE == "edu":
+        try:
+            ksg.record_history(d)
+        except Exception as e:
+            print("history save failed:", e)
     try:
         yt.thumbnails().set(videoId=vid, media_body=MediaFileUpload(thumb, mimetype="image/jpeg")).execute()
         print("Thumbnail set")
