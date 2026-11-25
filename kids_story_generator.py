@@ -65,10 +65,11 @@ def generate_edu():
 الأبطال الثابتون: {MASCOT_NAME} ({MASCOT}) و{FRIEND_NAME} ({FRIEND}). يعلّمان الأطفال بمرح.
 الشروط: {EDU_SCENES} مشاهد، كل مشهد من 20 إلى 32 كلمة، جمل قصيرة جدا موزونة ومقفاة كالأناشيد، مع لازمة (جملة ختام قصيرة مكررة بنفس اللفظ) في آخر كل مشهدين. المشهد الأول يبدأ بسؤال جذاب للأطفال أو نداء مرح فورا (بدون مقدمة طويلة). كل مشهد يعلّم عنصرا واحدا واضحا ويكرره. المشهد الأخير: مراجعة سريعة للدرس وتحية ختام سعيدة وتشجيع.
 ممنوع: العنف والرعب والسياسة وأي محتوى غير مناسب. لا تكرر هذه العناوين: {used}
+لكل مشهد حقل obj: كلمة إنجليزية واحدة فقط من هذه القائمة تمثل الشيء الذي يتعلمه الطفل في المشهد (rabbit, duck, apple, banana, star, ball, flower, fish, cat, tree, sun, house, heart, car, fox) واختر الأقرب، وحقل count: عدد النسخ من الشيء في الصورة من 1 إلى 5 (للأرقام فقط، وإلا 1).
 لكل مشهد حقل on_screen: النص الكبير الذي سيظهر على الشاشة بالعربية (حرف مع كلمة مثل "أ: أرنب"، أو رقم وكلمته "3: ثلاثة"، أو اللون، أو الكلمة المهمة)، أقل من 4 كلمات.
 لكل مشهد image_prompt بالإنجليزية (جملتان): ما يحدث بالضبط، والشخصية {MASCOT_NAME} بوصفها الحرفي: {MASCOT}، وعند ظهور {FRIEND_NAME} بوصفه الحرفي: {FRIEND}. أظهر في الصورة الأشياء التي يتعلمها الطفل (مثلا ثلاث تفاحات لرقم 3) بشكل كبير وواضح، لقطة متوسطة أو واسعة، بدون أي كتابة داخل الصورة، خلفية ملونة مبهجة.
 رجّع JSON فقط بهذه المفاتيح: title (عنوان قصير جذاب بالعربية فيه كلمة تعليمي أو أنشودة), description (سطران بالعربية), tags (8 كلمات), hook_title (2 إلى 5 كلمات تظهر في أول ثانيتين), thumbnail_text (2 إلى 4 كلمات), thumbnail_prompt (بالإنجليزية: {MASCOT_NAME} مبتسم يشير إلى عنصر الدرس الرئيسي، لقطة متوسطة),
-scenes (قائمة: narration, on_screen, image_prompt, search)."""
+scenes (قائمة: narration, on_screen, obj, count, image_prompt, search)."""
     last = None
     for model in MODELS:
         for _try in range(4):
@@ -83,8 +84,9 @@ scenes (قائمة: narration, on_screen, image_prompt, search)."""
                 data["story"] = " ".join(s["narration"].strip() for s in scenes)
                 if len(data["story"].split()) < 100:
                     raise ValueError("lesson too short")
-                hist.append({"title": data["title"], "theme": topic})
-                save_history(hist)
+                if os.getenv("DRY_RUN", "false").lower() != "true":  # a dry run must not use up a lesson
+                    hist.append({"title": data["title"], "theme": topic})
+                    save_history(hist)
                 return data
             except Exception as e:
                 last = e
