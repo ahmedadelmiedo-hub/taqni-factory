@@ -2,16 +2,16 @@ name: Kids Story Publisher
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # كل 6 ساعات (UTC). غيّرها من هنا
+    - cron: "30 22 * * *"   # مرة واحدة يوميا 22:30 UTC = 00:30 القاهرة (حد الرفع اليومي)
   workflow_dispatch:
     inputs:
       dry_run:
         description: "ابني الفيديو بدون رفع"
         type: boolean
-        default: false
+        default: true
       privacy:
         description: "public / unlisted / private"
-        default: "public"
+        default: "unlisted"
       make_short:
         description: "اعمل Short"
         type: boolean
