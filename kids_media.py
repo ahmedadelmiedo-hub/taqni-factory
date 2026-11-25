@@ -154,6 +154,8 @@ _rembg_session = None
 def cutout(img_path):
     """Split a scene into (background with the subject removed, subject RGBA) or (img, None) if segmentation is unusable."""
     global _rembg_session
+    if os.path.exists(img_path + ".fg.png"):  # vector scenes ship their own layers
+        return Image.open(img_path + ".bg.png").convert("RGB"), Image.open(img_path + ".fg.png").convert("RGBA")
     im = Image.open(img_path).convert("RGB")
     try:
         from rembg import remove, new_session
