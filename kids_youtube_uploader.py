@@ -59,7 +59,8 @@ def main():
     title, scenes, character = d["title"], d["scenes"], d.get("character", "a cute friendly cartoon character")
     tags = [t for t in d.get("tags", [])][:12] + ["قصص أطفال", "kids stories"]
     print("Story:", title, "| scenes:", len(scenes))
-    km.SEED = random.randint(1, 10**6)  # one seed per story keeps the hero looking the same in every scene
+    import kids_story_generator as ksg
+    km.SEED = ksg.MASCOT_SEED if ksg.MODE == "edu" else random.randint(1, 10**6)  # one seed per story keeps the hero looking the same in every scene
     audios = asyncio.run(_tts_all(scenes))
     imgs = []
     for i, s in enumerate(scenes):
@@ -71,7 +72,7 @@ def main():
         thumb = km.make_thumbnail(thumb_base, d.get("thumbnail_text") or title, f"{OUT}/thumb.jpg")
     except Exception as e:
         print("thumbnail render failed:", e); thumb = thumb_base
-    dur = km.assemble(imgs, audios, f"{OUT}/story.mp4", (1280, 720), workdir=OUT, animate=True, title=d.get("hook_title") or title)
+    dur = km.assemble(imgs, audios, f"{OUT}/story.mp4", (1280, 720), workdir=OUT, animate=True, title=d.get("hook_title") or title, captions=[s.get("on_screen") for s in scenes])
     print("video seconds:", round(dur))
     try:  # preview files committed to the repo so the result can be checked without downloading the video
         import shutil, subprocess
