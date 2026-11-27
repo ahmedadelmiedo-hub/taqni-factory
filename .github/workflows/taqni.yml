@@ -1,0 +1,63 @@
+name: Taqni Publisher
+
+on:
+  schedule:
+    - cron: "15 16 * * *"   # 18:15 Cairo
+    - cron: "45 8 * * *"    # 10:45 Cairo
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build the video without uploading"
+        type: boolean
+        default: true
+      topic:
+        description: "Optional topic override"
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: taqni
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install python deps
+        run: pip install -r requirements.txt
+      - name: Run bot
+        env:
+          PYTHONUNBUFFERED: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YT_TOKEN_JSON: ${{ secrets.YT_TOKEN_JSON }}
+          TTS_VOICE: ${{ vars.TTS_VOICE || 'ar-EG-ShakirNeural' }}
+          PRIVACY_STATUS: ${{ vars.PRIVACY_STATUS || 'public' }}
+          TOPIC: ${{ github.event.inputs.topic || '' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || (vars.UPLOAD_ENABLED == 'true' && '0' || '1') }}
+        run: python tech_bot.py
+      - name: Save history
+        if: success()
+        run: |
+          git config user.name "taqni-bot"
+          git config user.email "taqni-bot@users.noreply.github.com"
+          git add history.json || true
+          git diff --cached --quiet || (git commit -m "update history" && git pull --rebase && git push)
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output
+          path: out/*.mp4
+          retention-days: 3
+          if-no-files-found: ignore
