@@ -293,7 +293,7 @@ def main():
     print(json.dumps(data, ensure_ascii=False, indent=1))
     path = build(data, os.path.join(HERE, "tmp"))
     print("video:", path, round(dur(path), 1), "s")
-    if os.getenv("DRY_RUN", "1") == "1":
+    if os.getenv("DRY_RUN", "1").strip().lower() in ("1", "true"):
         print("dry run: no upload"); return
     vid = upload(path, data)
     h = load_hist(); h.append({"title": data["title"], "pillar": data.get("_pillar"), "id": vid}); save_hist(h)
