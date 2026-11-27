@@ -52,7 +52,8 @@ jobs:
           git config user.name "taqni-bot"
           git config user.email "taqni-bot@users.noreply.github.com"
           mkdir -p preview && cp out/short.mp4 preview/latest.mp4 || true
-          git add history.json preview || true
+          git add preview
+          git add history.json 2>/dev/null || true
           git diff --cached --quiet || (git commit -m "update history" && git pull --rebase && git push)
       - name: Upload artifact
         if: always()
