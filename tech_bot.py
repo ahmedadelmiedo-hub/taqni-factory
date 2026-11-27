@@ -16,7 +16,7 @@ HISTORY = os.path.join(HERE, "history.json")
 W, H = 1080, 1920
 VOICE = os.getenv("TTS_VOICE", "ar-EG-ShakirNeural")
 RATE = os.getenv("TTS_RATE", "+5%")
-MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-flash-latest").split(",") if m.strip()]
+MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", "gemini-3.8-flash,gemini-3.5-flash,gemini-flash-latest,gemini-3.5-flash-lite").split(",") if m.strip()]
 FONT = os.path.join(HERE, "fonts", "NotoSansArabic-Black.ttf")
 FONT_URL = "https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Black.ttf"
 
@@ -41,6 +41,7 @@ def ensure_font():
 
 
 def ar(s):
+    s = re.sub(r'[\u064B-\u0652\u0670]', '', s)
     return get_display(arabic_reshaper.reshape(s))
 
 
@@ -63,14 +64,16 @@ def gemini(prompt):
         for t in range(3):
             try:
                 r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                                  params={"key": key}, timeout=180,
+                                  params={"key": key}, timeout=90,
                                   json={"contents": [{"parts": [{"text": prompt}]}],
                                         "generationConfig": {"temperature": 0.9, "responseMimeType": "application/json"}})
+                if r.status_code in (400, 404):
+                    print(f"[gemini:{model}] HTTP {r.status_code}, skipping model"); break
                 r.raise_for_status()
                 txt = r.json()["candidates"][0]["content"]["parts"][0]["text"]
                 return json.loads(re.sub(r"^```json|```$", "", txt.strip()).strip())
             except Exception as e:
-                last = e; print(f"[gemini:{model}] {e}"); time.sleep(8 * (t + 1))
+                last = e; print(f"[gemini:{model}] {type(e).__name__}"); time.sleep(8 * (t + 1))
     raise RuntimeError(f"gemini failed: {last}")
 
 
